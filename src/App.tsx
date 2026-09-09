@@ -7,6 +7,14 @@ import { RenderDom } from "./rendering/render-dom";
 
 const surfaceList = Object.values(surfaces);
 
+const surfaceNames: Record<string, string> = {
+  mobilePortrait: "Mobile Portrait",
+  mobileLandscape: "Mobile Landscape",
+  broadcastLowerThird: "Broadcast Lower Third",
+  squareKiosk: "Square Kiosk",
+  constrained: "Constrained Surface",
+};
+
 function App() {
   const [surfaceId, setSurfaceId] = useState(
     surfaces.mobilePortrait.id,
@@ -28,11 +36,24 @@ function App() {
     (element) => !element.visible,
   );
 
+  /*
+   * This scaling is ONLY for the visual preview.
+   * Resolver coordinates remain in the real surface coordinate system.
+   */
+  const previewScale = Math.min(
+    1,
+    760 / surface.width,
+    520 / surface.height,
+  );
+
+  const previewWidth = surface.width * previewScale;
+  const previewHeight = surface.height * previewScale;
+
   return (
     <main
       style={{
         minHeight: "100vh",
-        padding: "40px",
+        padding: "40px 32px",
       }}
     >
       <div
@@ -41,14 +62,14 @@ function App() {
           margin: "0 auto",
         }}
       >
-        <header style={{ marginBottom: 32 }}>
+        <header style={{ marginBottom: 30 }}>
           <div
             style={{
               fontSize: 13,
-              fontWeight: 700,
-              letterSpacing: "0.08em",
+              fontWeight: 800,
+              letterSpacing: "0.1em",
               textTransform: "uppercase",
-              opacity: 0.55,
+              opacity: 0.5,
               marginBottom: 8,
             }}
           >
@@ -58,8 +79,9 @@ function App() {
           <h1
             style={{
               margin: 0,
-              fontSize: 42,
-              letterSpacing: "-0.03em",
+              fontSize: "clamp(32px, 5vw, 48px)",
+              letterSpacing: "-0.04em",
+              lineHeight: 1.05,
             }}
           >
             Adaptive Layout Engine
@@ -67,50 +89,77 @@ function App() {
 
           <p
             style={{
-              maxWidth: 720,
+              maxWidth: 760,
+              margin: "14px 0 0",
               fontSize: 17,
               lineHeight: 1.6,
-              opacity: 0.7,
+              color: "#6b7280",
             }}
           >
             One declarative ad specification. Different surface
-            constraints. A deterministic resolver produces a valid
-            composition for each surface.
+            constraints. A deterministic TypeScript resolver produces
+            a valid composition for each surface.
           </p>
         </header>
 
         <section
           style={{
-            background: "white",
+            background: "#ffffff",
             border: "1px solid #e5e7eb",
-            borderRadius: 18,
+            borderRadius: 20,
             padding: 24,
-            marginBottom: 24,
+            boxShadow: "0 10px 35px rgba(15, 23, 42, 0.05)",
           }}
         >
           <div
             style={{
               display: "flex",
-              alignItems: "center",
               justifyContent: "space-between",
-              gap: 16,
+              alignItems: "flex-start",
+              gap: 20,
               flexWrap: "wrap",
-              marginBottom: 24,
+              marginBottom: 20,
             }}
           >
             <div>
-              <h2 style={{ margin: 0 }}>
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: 22,
+                  letterSpacing: "-0.02em",
+                }}
+              >
                 Surface preview
               </h2>
 
               <p
                 style={{
                   margin: "6px 0 0",
-                  opacity: 0.6,
+                  color: "#6b7280",
+                  fontSize: 14,
                 }}
               >
                 Switch surfaces to re-run the resolver.
               </p>
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  marginTop: 14,
+                }}
+              >
+                <StatusPill text="TypeScript Resolver" />
+                <StatusPill text="No Surface Branches" />
+                <StatusPill
+                  text={
+                    layout.valid
+                      ? "Constraints Satisfied"
+                      : "Constraints Failed"
+                  }
+                />
+              </div>
             </div>
 
             <select
@@ -119,16 +168,21 @@ function App() {
                 setSurfaceId(event.target.value)
               }
               style={{
-                padding: "10px 14px",
+                padding: "11px 14px",
                 borderRadius: 10,
                 border: "1px solid #d1d5db",
-                background: "white",
-                minWidth: 220,
+                background: "#ffffff",
+                minWidth: 240,
+                fontWeight: 600,
+                color: "#111827",
               }}
             >
               {surfaceList.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.id}
+                <option
+                  key={item.id}
+                  value={item.id}
+                >
+                  {surfaceNames[item.id] ?? item.id}
                 </option>
               ))}
             </select>
@@ -150,29 +204,41 @@ function App() {
                 justifyContent: "center",
                 alignItems: "center",
                 padding: 24,
-                background: "#f9fafb",
-                borderRadius: 14,
+                background: "#f8fafc",
+                borderRadius: 16,
                 overflow: "auto",
               }}
             >
               <div
                 style={{
-                  width: surface.width,
-                  height: surface.height,
+                  width: previewWidth,
+                  height: previewHeight,
                   position: "relative",
-                  overflow: "hidden",
-                  background: "#ffffff",
-                  border: "2px solid #111827",
-                  borderRadius: 12,
                   flexShrink: 0,
                 }}
               >
-                {layout.elements.map((element) => (
-                  <RenderDom
-                    key={element.id}
-                    element={element}
-                  />
-                ))}
+                <div
+                  style={{
+                    width: surface.width,
+                    height: surface.height,
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    transform: `scale(${previewScale})`,
+                    transformOrigin: "top left",
+                    overflow: "hidden",
+                    background: "#ffffff",
+                    border: "2px solid #111827",
+                    borderRadius: 12,
+                  }}
+                >
+                  {layout.elements.map((element) => (
+                    <RenderDom
+                      key={element.id}
+                      element={element}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -180,7 +246,7 @@ function App() {
               style={{
                 display: "flex",
                 flexDirection: "column",
-                gap: 14,
+                gap: 12,
               }}
             >
               <InfoCard
@@ -223,7 +289,8 @@ function App() {
                   <div
                     style={{
                       fontSize: 13,
-                      opacity: 0.6,
+                      color: "#6b7280",
+                      lineHeight: 1.5,
                     }}
                   >
                     No degradation required.
@@ -241,23 +308,42 @@ function App() {
                         <div
                           key={`${decision.elementId}-${index}`}
                           style={{
-                            fontSize: 13,
-                            lineHeight: 1.5,
+                            padding: "10px 12px",
+                            borderRadius: 10,
+                            background: "#f9fafb",
+                            border: "1px solid #e5e7eb",
                           }}
                         >
-                          <strong>
-                            {decision.elementId}
-                          </strong>{" "}
-                          <span
-                            style={{
-                              opacity: 0.65,
-                            }}
-                          >
-                            → {decision.action}
-                          </span>
                           <div
                             style={{
-                              opacity: 0.6,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              marginBottom: 4,
+                            }}
+                          >
+                            <strong>
+                              {decision.elementId}
+                            </strong>
+
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 800,
+                                textTransform: "uppercase",
+                                letterSpacing: "0.05em",
+                                opacity: 0.55,
+                              }}
+                            >
+                              {decision.action}
+                            </span>
+                          </div>
+
+                          <div
+                            style={{
+                              fontSize: 12,
+                              lineHeight: 1.45,
+                              color: "#6b7280",
                             }}
                           >
                             {decision.reason}
@@ -274,12 +360,14 @@ function App() {
 
         <footer
           style={{
+            marginTop: 18,
             fontSize: 13,
-            opacity: 0.5,
+            color: "#6b7280",
+            textAlign: "center",
           }}
         >
-          Layout decisions are computed in TypeScript. CSS is
-          used only to render the resolved geometry.
+          Layout decisions are computed in TypeScript. CSS is used
+          only to render the resolved geometry.
         </footer>
       </div>
     </main>
@@ -299,14 +387,16 @@ function InfoCard({
         border: "1px solid #e5e7eb",
         borderRadius: 12,
         padding: 14,
+        background: "#ffffff",
       }}
     >
       <div
         style={{
-          fontSize: 12,
+          fontSize: 11,
+          fontWeight: 700,
           textTransform: "uppercase",
-          letterSpacing: "0.06em",
-          opacity: 0.5,
+          letterSpacing: "0.07em",
+          color: "#9ca3af",
         }}
       >
         {label}
@@ -314,14 +404,40 @@ function InfoCard({
 
       <div
         style={{
-          marginTop: 4,
+          marginTop: 5,
           fontSize: 20,
-          fontWeight: 700,
+          fontWeight: 800,
+          letterSpacing: "-0.02em",
         }}
       >
         {value}
       </div>
     </div>
+  );
+}
+
+function StatusPill({
+  text,
+}: {
+  text: string;
+}) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "6px 10px",
+        borderRadius: 999,
+        background: "#f3f4f6",
+        border: "1px solid #e5e7eb",
+        fontSize: 10,
+        fontWeight: 800,
+        letterSpacing: "0.04em",
+        textTransform: "uppercase",
+      }}
+    >
+      {text}
+    </span>
   );
 }
 

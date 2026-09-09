@@ -649,10 +649,43 @@ function createResolved(
       ? 28
       : 18;
 
-  const fontSize = Math.max(
+  const requestedFontSize = Math.max(
     minFontSize,
     preferredFontSize * compression,
   );
+
+  const estimatedCharactersPerLine = Math.max(
+    8,
+    Math.floor(rect.width / (requestedFontSize * 0.55)),
+  );
+
+  const estimatedLines =
+    element.type === "text"
+      ? Math.ceil(
+          element.content.length /
+            estimatedCharactersPerLine,
+        )
+      : 1;
+
+  const estimatedTextHeight =
+    estimatedLines * requestedFontSize * 1.15;
+
+  const availableTextHeight = Math.max(
+    rect.height - 12,
+    minFontSize * 1.15,
+  );
+
+  const fitFontSize =
+    element.type === "text" &&
+    estimatedTextHeight > availableTextHeight
+      ? Math.max(
+          minFontSize,
+          availableTextHeight /
+            (estimatedLines * 1.15),
+        )
+      : requestedFontSize;
+
+  const fontSize = fitFontSize;
 
   return {
     id: element.id,
