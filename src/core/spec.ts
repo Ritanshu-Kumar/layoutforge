@@ -27,37 +27,42 @@ export function defineAd(elements: AdElement[]): AdSpec {
     const constraints = element.constraints;
 
     if (constraints) {
-      if (
-        constraints.minWidth !== undefined &&
-        constraints.minWidth < 0
-      ) {
-        throw new Error(`Invalid minWidth for "${element.id}".`);
+      const values = [
+        constraints.minWidth,
+        constraints.minHeight,
+        constraints.preferredWidth,
+        constraints.preferredHeight,
+        constraints.minFontSize,
+        constraints.maxFontSize,
+        constraints.minTapTarget,
+      ];
+
+      if (values.some(
+        (value) => value !== undefined && !Number.isFinite(value),
+      )) {
+        throw new Error(`Constraints for "${element.id}" must be finite.`);
       }
 
       if (
-        constraints.minHeight !== undefined &&
-        constraints.minHeight < 0
+        (constraints.minWidth ?? 0) < 0 ||
+        (constraints.minHeight ?? 0) < 0 ||
+        (constraints.preferredWidth ?? 1) <= 0 ||
+        (constraints.preferredHeight ?? 1) <= 0 ||
+        (constraints.minFontSize ?? 1) <= 0 ||
+        (constraints.maxFontSize ?? 1) <= 0 ||
+        (constraints.minTapTarget ?? 1) <= 0 ||
+        (constraints.minFontSize !== undefined &&
+          constraints.maxFontSize !== undefined &&
+          constraints.minFontSize > constraints.maxFontSize) ||
+        (constraints.minWidth !== undefined &&
+          constraints.preferredWidth !== undefined &&
+          constraints.minWidth > constraints.preferredWidth) ||
+        (constraints.minHeight !== undefined &&
+          constraints.preferredHeight !== undefined &&
+          constraints.minHeight > constraints.preferredHeight)
       ) {
-        throw new Error(`Invalid minHeight for "${element.id}".`);
+        throw new Error(`Invalid constraints for "${element.id}".`);
       }
-
-      if (
-        constraints.preferredWidth !== undefined &&
-        constraints.preferredWidth <= 0
-      ) {
-        throw new Error(`Invalid preferredWidth for "${element.id}".`);
-      }
-
-      if (
-        constraints.preferredHeight !== undefined &&
-        constraints.preferredHeight <= 0
-      ) {
-        throw new Error(`Invalid preferredHeight for "${element.id}".`);
-      }
-    }
-
-    if (element.type === "button" && element.constraints?.minFontSize === 0) {
-      throw new Error(`Button "${element.id}" cannot have a zero font size.`);
     }
   }
 

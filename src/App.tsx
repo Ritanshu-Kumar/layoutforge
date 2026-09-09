@@ -36,10 +36,6 @@ function App() {
     (element) => !element.visible,
   );
 
-  /*
-   * This scaling is ONLY for the visual preview.
-   * Resolver coordinates remain in the real surface coordinate system.
-   */
   const previewScale = Math.min(
     1,
     760 / surface.width,

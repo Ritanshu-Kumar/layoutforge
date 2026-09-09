@@ -27,22 +27,31 @@ export function resolveLayout(
   const bounds = getSafeBounds(surface);
   const composition = chooseComposition(bounds);
 
-  /*
-   * Try progressively stronger degradation.
-   *
-   * We never violate hard minimums. When a layout still cannot fit,
-   * lower-priority elements are removed and the remaining elements
-   * are resolved again from scratch.
-   */
+  const priorities = [...new Set(
+    spec.elements.map((element) => element.priority),
+  )].sort((a, b) => b - a);
+
   const attempts = [
-    { compression: 1, removedPriorities: [] as number[] },
-    { compression: 0.9, removedPriorities: [] as number[] },
-    { compression: 0.8, removedPriorities: [] as number[] },
-    { compression: 0.9, removedPriorities: [3] },
-    { compression: 0.8, removedPriorities: [3] },
-    { compression: 0.9, removedPriorities: [3, 2] },
-    { compression: 0.8, removedPriorities: [3, 2] },
-  ];
+    ...priorities.reduce<{
+      compression: number;
+      removedPriorities: number[];
+    }[][]>((allAttempts, _priority, index) => {
+      const removedPriorities = priorities.slice(0, index + 1);
+
+      allAttempts.push([
+        { compression: 0.9, removedPriorities },
+        { compression: 0.8, removedPriorities },
+      ]);
+
+      return allAttempts;
+    }, []),
+  ].flat();
+
+  attempts.unshift(
+    { compression: 1, removedPriorities: [] },
+    { compression: 0.9, removedPriorities: [] },
+    { compression: 0.8, removedPriorities: [] },
+  );
 
   for (const attemptConfig of attempts) {
     const visibleSpec = spec.elements.filter(
@@ -60,20 +69,16 @@ export function resolveLayout(
 
     if (
       hasAllElements(candidate.elements, visibleSpec) &&
-      validateLayout(candidate.elements, surface)
+      validateLayout(candidate.elements, surface, bounds, visibleSpec)
     ) {
       return {
         surface,
-        elements: mergeHiddenElements(
-          candidate.elements,
-          spec.elements,
-          visibleSpec,
-        ),
+        elements: mergeHiddenElements(candidate.elements, spec.elements),
         decisions: [
           ...candidate.decisions,
           ...getHiddenDecisions(
             spec.elements,
-            visibleSpec,
+            candidate.elements,
           ),
         ],
         valid: true,
@@ -81,12 +86,11 @@ export function resolveLayout(
     }
   }
 
-  /*
-   * Final fallback: retain only priority-1 elements.
-   * Priority-1 content is never silently removed.
-   */
+  const criticalPriority = Math.min(
+    ...spec.elements.map((element) => element.priority),
+  );
   const critical = spec.elements.filter(
-    (element) => element.priority === 1,
+    (element) => element.priority === criticalPriority,
   );
 
   const fallback = compose(
@@ -96,25 +100,31 @@ export function resolveLayout(
     composition,
     0.75,
   );
+  const fallbackIsValid =
+    hasAllElements(fallback.elements, critical) &&
+    validateLayout(
+      fallback.elements,
+      surface,
+      bounds,
+      critical,
+    );
+  const fallbackElements = fallbackIsValid
+    ? fallback.elements
+    : [];
 
   return {
     surface,
     elements: mergeHiddenElements(
-      fallback.elements,
+      fallbackElements,
       spec.elements,
-      critical,
     ),
     decisions: [
       ...fallback.decisions,
-      ...getHiddenDecisions(spec.elements, critical),
+      ...getHiddenDecisions(spec.elements, fallbackElements),
     ],
-    valid: validateLayout(fallback.elements, surface),
+    valid: fallbackIsValid,
   };
 }
-
-/* -------------------------------------------------------------------------- */
-/* Composition                                                                */
-/* -------------------------------------------------------------------------- */
 
 function compose(
   elements: AdElement[],
@@ -123,48 +133,49 @@ function compose(
   composition: Composition,
   compression: number,
 ): Candidate {
+  let candidate: Candidate;
+
   switch (composition) {
     case "tall":
-      return composeTall(
+      candidate = composeTall(
         elements,
         bounds,
         surface,
         compression,
       );
+      break;
 
     case "wide":
-      return composeWide(
+      candidate = composeWide(
         elements,
         bounds,
         surface,
         compression,
       );
+      break;
 
     case "balanced":
-      return composeBalanced(
+      candidate = composeBalanced(
         elements,
         bounds,
         surface,
         compression,
       );
+      break;
   }
+
+  return {
+    elements: appendUnplacedElements(
+      candidate.elements,
+      elements,
+      bounds,
+      surface,
+      compression,
+    ),
+    decisions: candidate.decisions,
+  };
 }
 
-/*
- * Tall:
- *
- * ┌────────────────────┐
- * │       LOGO         │
- * ├────────────────────┤
- * │      HEADLINE      │
- * ├────────────────────┤
- * │                    │
- * │       IMAGE        │
- * │                    │
- * ├────────────────────┤
- * │ PRICE │    CTA     │
- * └────────────────────┘
- */
 function composeTall(
   elements: AdElement[],
   bounds: Bounds,
@@ -176,11 +187,11 @@ function composeTall(
 
   const gap = Math.max(8, 14 * compression);
 
-  const logo = byRole.get("branding");
-  const headline = byRole.get("primary");
-  const hero = byRole.get("hero");
-  const price = byRole.get("secondary");
-  const cta = byRole.get("action");
+  const logo = firstRole(byRole, "branding");
+  const headline = firstRole(byRole, "primary");
+  const hero = firstRole(byRole, "hero");
+  const price = firstRole(byRole, "secondary");
+  const cta = firstRole(byRole, "action");
 
   let y = bounds.y;
   const result: ResolvedElement[] = [];
@@ -309,13 +320,6 @@ function composeTall(
   };
 }
 
-/*
- * Wide:
- *
- * ┌────────┬─────────────────────────┬─────────┐
- * │ IMAGE  │ HEADLINE / PRICE / CTA │  LOGO   │
- * └────────┴─────────────────────────┴─────────┘
- */
 function composeWide(
   elements: AdElement[],
   bounds: Bounds,
@@ -324,29 +328,15 @@ function composeWide(
 ): Candidate {
   const byRole = roleMap(elements);
 
-  const hero = byRole.get("hero");
-  const headline = byRole.get("primary");
-  const price = byRole.get("secondary");
-  const cta = byRole.get("action");
-  const logo = byRole.get("branding");
+  const hero = firstRole(byRole, "hero");
+  const headline = firstRole(byRole, "primary");
+  const price = firstRole(byRole, "secondary");
+  const cta = firstRole(byRole, "action");
+  const logo = firstRole(byRole, "branding");
 
   const gap = Math.max(12, 18 * compression);
 
   const result: ResolvedElement[] = [];
-
-  /*
-   * Generic wide composition:
-   *
-   * ┌────────┬──────────────────────────────┬────────┐
-   * │        │           HEADLINE           │        │
-   * │  HERO  │                              │  LOGO  │
-   * │        ├──────────────┬───────────────┤        │
-   * │        │    PRICE     │      CTA      │        │
-   * └────────┴──────────────┴───────────────┴────────┘
-   *
-   * The proportions are derived from available width rather than
-   * the identity of the surface.
-   */
 
   const heroWidth = hero
     ? bounds.width * 0.24
@@ -500,17 +490,6 @@ function composeWide(
   };
 }
 
-/*
- * Balanced:
- *
- * ┌──────────────────────┐
- * │ HEADLINE         LOGO│
- * │                      │
- * │        IMAGE         │
- * │                      │
- * │ PRICE          CTA   │
- * └──────────────────────┘
- */
 function composeBalanced(
   elements: AdElement[],
   bounds: Bounds,
@@ -519,17 +498,15 @@ function composeBalanced(
 ): Candidate {
   const byRole = roleMap(elements);
 
-  const headline = byRole.get("primary");
-  const hero = byRole.get("hero");
-  const price = byRole.get("secondary");
-  const cta = byRole.get("action");
-  const logo = byRole.get("branding");
+  const headline = firstRole(byRole, "primary");
+  const hero = firstRole(byRole, "hero");
+  const price = firstRole(byRole, "secondary");
+  const cta = firstRole(byRole, "action");
+  const logo = firstRole(byRole, "branding");
 
   const gap = Math.max(12, 18 * compression);
 
   const result: ResolvedElement[] = [];
-
-  // --- Header -------------------------------------------------------------
 
   const headerHeight = headline
     ? Math.max(
@@ -579,8 +556,6 @@ function composeBalanced(
     );
   }
 
-  // --- Footer -------------------------------------------------------------
-
   const footer = [price, cta].filter(
     (element): element is AdElement => Boolean(element),
   );
@@ -594,8 +569,6 @@ function composeBalanced(
           64 * compression,
         )
       : 0;
-
-  // --- Hero area ----------------------------------------------------------
 
   const heroTop =
     bounds.y +
@@ -643,8 +616,6 @@ function composeBalanced(
     }
   }
 
-  // --- Footer -------------------------------------------------------------
-
   if (footer.length > 0) {
     const footerGap = Math.max(
       10,
@@ -686,10 +657,6 @@ function composeBalanced(
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Element sizing                                                             */
-/* -------------------------------------------------------------------------- */
-
 function createResolved(
   element: AdElement,
   rect: Rect,
@@ -700,15 +667,17 @@ function createResolved(
     element.constraints?.minFontSize ?? 0,
     surface.minTextSize ?? 12,
   );
+  const maxFontSize = element.constraints?.maxFontSize ?? Infinity;
 
   const preferredFontSize =
     element.role === "primary"
       ? 28
       : 18;
 
-  const requestedFontSize = Math.max(
-    minFontSize,
+  const requestedFontSize = clamp(
     preferredFontSize * compression,
+    minFontSize,
+    maxFontSize,
   );
 
   const estimatedCharactersPerLine = Math.max(
@@ -742,7 +711,11 @@ function createResolved(
         )
       : requestedFontSize;
 
-  const fontSize = fitFontSize;
+  const fontSize = clamp(
+    fitFontSize,
+    minFontSize,
+    maxFontSize,
+  );
 
   return {
     id: element.id,
@@ -767,7 +740,10 @@ function minimumWidth(
 
   const tapMinimum =
     element.type === "button"
-      ? surface.minTapTarget ?? 1
+      ? Math.max(
+          surface.minTapTarget ?? 1,
+          element.constraints?.minTapTarget ?? 1,
+        )
       : 1;
 
   return Math.max(
@@ -785,7 +761,10 @@ function minimumHeight(
 
   const tapMinimum =
     element.type === "button"
-      ? surface.minTapTarget ?? 1
+      ? Math.max(
+          surface.minTapTarget ?? 1,
+          element.constraints?.minTapTarget ?? 1,
+        )
       : 1;
 
   return Math.max(
@@ -814,37 +793,52 @@ function preferredHeight(
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Validation                                                                 */
-/* -------------------------------------------------------------------------- */
-
 function validateLayout(
   elements: ResolvedElement[],
   surface: SurfaceProfile,
+  bounds: Bounds,
+  expected: AdElement[],
 ): boolean {
   const visible = elements.filter(
     (element) => element.visible,
   );
+  const expectedById = new Map(
+    expected.map((element) => [element.id, element]),
+  );
 
   for (const element of visible) {
     const { x, y, width, height } = element.rect;
+    const source = expectedById.get(element.id);
 
-    if (
-      width <= 0 ||
-      height <= 0 ||
-      x < 0 ||
-      y < 0 ||
-      x + width > surface.width ||
-      y + height > surface.height
-    ) {
+    if (!source || ![x, y, width, height].every(Number.isFinite)) {
       return false;
     }
 
     if (
-      element.type === "button" &&
-      surface.minTapTarget !== undefined &&
-      (width < surface.minTapTarget ||
-        height < surface.minTapTarget)
+      width <= 0 ||
+      height <= 0 ||
+      x < bounds.x ||
+      y < bounds.y ||
+      x + width > bounds.x + bounds.width ||
+      y + height > bounds.y + bounds.height
+    ) {
+      return false;
+    }
+
+    const minimumWidthValue = minimumWidth(source, surface);
+    const minimumHeightValue = minimumHeight(source, surface);
+
+    if (width < minimumWidthValue || height < minimumHeightValue) {
+      return false;
+    }
+
+    if (
+      (element.type === "text" ||
+        element.type === "button") &&
+      (element.fontSize ?? 0) < Math.max(
+        surface.minTextSize ?? 0,
+        source.constraints?.minFontSize ?? 0,
+      )
     ) {
       return false;
     }
@@ -852,8 +846,8 @@ function validateLayout(
     if (
       (element.type === "text" ||
         element.type === "button") &&
-      surface.minTextSize !== undefined &&
-      (element.fontSize ?? 0) < surface.minTextSize
+      source.constraints?.maxFontSize !== undefined &&
+      (element.fontSize ?? 0) > source.constraints.maxFontSize
     ) {
       return false;
     }
@@ -898,10 +892,6 @@ function overlaps(
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                    */
-/* -------------------------------------------------------------------------- */
-
 function chooseComposition(
   bounds: Bounds,
 ): Composition {
@@ -920,26 +910,85 @@ function chooseComposition(
 
 function roleMap(
   elements: AdElement[],
-): Map<AdElement["role"], AdElement> {
-  return new Map(
-    elements.map((element) => [
-      element.role,
-      element,
-    ]),
+): Map<AdElement["role"], AdElement[]> {
+  const roles = new Map<AdElement["role"], AdElement[]>();
+
+  for (const element of elements) {
+    const roleElements = roles.get(element.role) ?? [];
+    roleElements.push(element);
+    roles.set(element.role, roleElements);
+  }
+
+  return roles;
+}
+
+function firstRole(
+  roles: Map<AdElement["role"], AdElement[]>,
+  role: AdElement["role"],
+): AdElement | undefined {
+  return roles.get(role)?.[0];
+}
+
+function appendUnplacedElements(
+  resolved: ResolvedElement[],
+  elements: AdElement[],
+  bounds: Bounds,
+  surface: SurfaceProfile,
+  compression: number,
+): ResolvedElement[] {
+  const placedIds = new Set(
+    resolved.map((element) => element.id),
   );
+  const unplaced = elements.filter(
+    (element) => !placedIds.has(element.id),
+  );
+  let cursorY = bounds.y;
+
+  for (const element of resolved) {
+    cursorY = Math.max(cursorY, element.rect.y + element.rect.height);
+  }
+
+  for (const element of unplaced) {
+    const gap = Math.max(8, 12 * compression);
+    const width = Math.min(
+      bounds.width,
+      Math.max(minimumWidth(element, surface), bounds.width * 0.25),
+    );
+    const height = Math.min(
+      bounds.height,
+      Math.max(minimumHeight(element, surface), bounds.height * 0.12),
+    );
+
+    resolved.push(
+      createResolved(
+        element,
+        {
+          x: bounds.x,
+          y: cursorY + gap,
+          width,
+          height,
+        },
+        surface,
+        compression,
+      ),
+    );
+
+    cursorY += gap + height;
+  }
+
+  return resolved;
 }
 
 function mergeHiddenElements(
   visible: ResolvedElement[],
   all: AdElement[],
-  included: AdElement[],
 ): ResolvedElement[] {
-  const includedIds = new Set(
-    included.map((element) => element.id),
+  const visibleIds = new Set(
+    visible.map((element) => element.id),
   );
 
   const hidden = all
-    .filter((element) => !includedIds.has(element.id))
+    .filter((element) => !visibleIds.has(element.id))
     .map((element) => ({
       id: element.id,
       type: element.type,
@@ -959,7 +1008,7 @@ function mergeHiddenElements(
 
 function getHiddenDecisions(
   all: AdElement[],
-  visible: AdElement[],
+  visible: Array<Pick<AdElement, "id">>,
 ): ResolutionDecision[] {
   const visibleIds = new Set(
     visible.map((element) => element.id),
@@ -1003,6 +1052,8 @@ function validateSurface(
   surface: SurfaceProfile,
 ): void {
   if (
+    !Number.isFinite(surface.width) ||
+    !Number.isFinite(surface.height) ||
     surface.width <= 0 ||
     surface.height <= 0
   ) {
@@ -1013,7 +1064,8 @@ function validateSurface(
 
   if (
     surface.minTapTarget !== undefined &&
-    surface.minTapTarget <= 0
+    (!Number.isFinite(surface.minTapTarget) ||
+      surface.minTapTarget <= 0)
   ) {
     throw new Error(
       "minTapTarget must be positive.",
@@ -1022,21 +1074,101 @@ function validateSurface(
 
   if (
     surface.minTextSize !== undefined &&
-    surface.minTextSize <= 0
+    (!Number.isFinite(surface.minTextSize) ||
+      surface.minTextSize <= 0)
   ) {
     throw new Error(
       "minTextSize must be positive.",
     );
+  }
+
+  const safe = surface.safeArea;
+
+  if (safe) {
+    const values = [
+      safe.top,
+      safe.right,
+      safe.bottom,
+      safe.left,
+    ];
+
+    if (
+      values.some((value) =>
+        !Number.isFinite(value) || value < 0,
+      ) ||
+      safe.left + safe.right >= surface.width ||
+      safe.top + safe.bottom >= surface.height
+    ) {
+      throw new Error(
+        "Safe-area insets must be finite, non-negative, and leave a positive layout area.",
+      );
+    }
   }
 }
 
 function validateSpec(
   spec: AdSpec,
 ): void {
-  if (spec.elements.length === 0) {
+  if (!spec || !Array.isArray(spec.elements) || spec.elements.length === 0) {
     throw new Error(
       "Ad spec must contain at least one element.",
     );
+  }
+
+  const ids = new Set<string>();
+
+  for (const element of spec.elements) {
+    if (!element.id || ids.has(element.id)) {
+      throw new Error("Ad spec element ids must be unique and non-empty.");
+    }
+
+    ids.add(element.id);
+
+    if (!Number.isInteger(element.priority) || element.priority < 1) {
+      throw new Error(`Invalid priority for "${element.id}".`);
+    }
+
+    if (!element.content.trim()) {
+      throw new Error(`Element "${element.id}" must have content.`);
+    }
+
+    const constraints = element.constraints;
+    const numericConstraints = [
+      constraints?.minWidth,
+      constraints?.minHeight,
+      constraints?.preferredWidth,
+      constraints?.preferredHeight,
+      constraints?.minFontSize,
+      constraints?.maxFontSize,
+      constraints?.minTapTarget,
+    ];
+
+    if (numericConstraints.some(
+      (value) => value !== undefined && !Number.isFinite(value),
+    )) {
+      throw new Error(`Constraints for "${element.id}" must be finite.`);
+    }
+
+    if (
+      (constraints?.minWidth ?? 0) < 0 ||
+      (constraints?.minHeight ?? 0) < 0 ||
+      (constraints?.preferredWidth ?? 1) <= 0 ||
+      (constraints?.preferredHeight ?? 1) <= 0 ||
+      (constraints?.minFontSize ?? 1) <= 0 ||
+      (constraints?.maxFontSize ?? 1) <= 0 ||
+      (constraints?.minTapTarget ?? 1) <= 0 ||
+      (constraints?.minFontSize !== undefined &&
+        constraints.maxFontSize !== undefined &&
+        constraints.minFontSize > constraints.maxFontSize) ||
+      (constraints?.minWidth !== undefined &&
+        constraints.preferredWidth !== undefined &&
+        constraints.minWidth > constraints.preferredWidth) ||
+      (constraints?.minHeight !== undefined &&
+        constraints.preferredHeight !== undefined &&
+        constraints.minHeight > constraints.preferredHeight)
+    ) {
+      throw new Error(`Invalid constraints for "${element.id}".`);
+    }
   }
 }
 
