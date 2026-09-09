@@ -268,7 +268,7 @@ describe("LayoutForge resolver", () => {
       height: 100,
     });
 
-    expect(layout.valid).toBe(true);
+    expect(layout.valid).toBe(false);
     expect(layout.elements).toHaveLength(1);
     expect(layout.elements[0].visible).toBe(false);
   });

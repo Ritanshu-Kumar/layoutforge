@@ -36,6 +36,10 @@ export function resolveLayout(
       compression: number;
       removedPriorities: number[];
     }[][]>((allAttempts, _priority, index) => {
+      if (index === priorities.length - 1) {
+        return allAttempts;
+      }
+
       const removedPriorities = priorities.slice(0, index + 1);
 
       allAttempts.push([

@@ -120,9 +120,11 @@ Elements have numeric priorities. Priority 1 content is considered critical.
 When the preferred composition cannot satisfy all constraints, the resolver progressively degrades the layout:
 
 1. Compress the composition.
-2. Remove lower-priority branding.
-3. Remove other secondary content when necessary.
-4. Preserve priority-1 content as the final fallback.
+2. Remove the lowest-priority priority tier.
+3. Re-resolve the remaining elements.
+4. Continue until the layout becomes valid or only critical content remains.
+
+Priority values are data-driven; the resolver does not assume specific numeric tiers.
 
 Hard constraints are checked during resolution. A layout is only returned as valid when the visible elements satisfy the supported surface constraints.
 
