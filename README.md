@@ -1,32 +1,247 @@
-# React + TypeScript + Vite
+# LayoutForge
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Constraint-based adaptive layout resolution for multi-surface advertising.
 
-Currently, two official plugins are available:
+LayoutForge takes a single declarative advertisement specification and resolves it into valid layouts for surfaces with fundamentally different dimensions and constraints.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Why
 
-## React Compiler
+The same advertising content may need to appear on:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- mobile portrait screens
+- mobile landscape screens
+- broadcast lower-thirds
+- square interactive kiosks
 
-## Expanding the Oxlint configuration
+Instead of maintaining a separate layout for each surface, LayoutForge uses a constraint-driven resolver to derive the composition from the available geometry and surface constraints.
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+## Architecture
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```text
+Ad Spec
+   |
+   v
+Constraint Resolver
+   |
+   v
+Resolved Layout
+   |
+   v
+DOM Renderer
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+The resolver is plain TypeScript and is independent of React. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
+
+## Features
+
+- Single declarative ad specification
+- Constraint-based layout resolution
+- Priority-aware degradation
+- Safe-area support
+- Minimum tap-target constraints
+- Minimum text-size constraints
+- Overlap detection
+- Bounds validation
+- Four required surface profiles
+- Unknown-surface resolution
+- Interactive surface picker
+- Automated resolver tests
+
+## Demo
+
+The demo uses one ad specification containing:
+
+- headline
+- product image
+- price
+- CTA
+- branding
+
+The same specification is resolved against multiple surface profiles.
+
+Available profiles include:
+
+- Mobile Portrait
+- Mobile Landscape
+- Broadcast Lower Third
+- Square Kiosk
+- Constrained surface
+
+Use the surface selector to see the resolver recompute the layout.
+
+## Resolution Algorithm
+
+The resolver follows this process:
+
+```text
+Ad Spec + Surface Profile
+          |
+          v
+    Validate inputs
+          |
+          v
+    Calculate safe bounds
+          |
+          v
+   Select composition
+          |
+          v
+Attempt a preferred composition
+   with the available space
+          |
+          v
+ Validate hard constraints
+          |
+       +--+--+
+       |     |
+      pass  fail
+       |     |
+       v     v
+     return  degrade
+               |
+               v
+          re-resolve
+```
+
+Composition is chosen from the surface geometry.
+
+The resolver does not contain surface-specific branches such as:
+
+```ts
+if (surface.id === "mobilePortrait")
+```
+
+Instead, surfaces provide dimensions and constraints, and the same resolution algorithm operates on them.
+
+## Priority & Degradation
+
+Elements have numeric priorities. Priority 1 content is considered critical.
+
+When the preferred composition cannot satisfy all constraints, the resolver progressively degrades the layout:
+
+1. Compress the composition.
+2. Remove lower-priority branding.
+3. Remove other secondary content when necessary.
+4. Preserve priority-1 content as the final fallback.
+
+Hard constraints are checked during resolution. A layout is only returned as valid when the visible elements satisfy the supported surface constraints.
+
+For example, a touch surface may require:
+
+```text
+minimum tap target = 60px
+```
+
+and a broadcast surface may require:
+
+```text
+minimum text size = 32px
+```
+
+The resolver accounts for these constraints when determining whether a layout is valid.
+
+## TypeScript Design
+
+Core types include:
+
+- `AdSpec`
+- `AdElement`
+- `SurfaceProfile`
+- `ResolvedElement`
+- `ResolvedLayout`
+- `ResolutionDecision`
+
+The output is explicitly typed so rendering code can consume position, size, visibility, and typography without guessing.
+
+## Testing
+
+The resolver tests cover:
+
+- valid layouts across required surfaces
+- bounds safety
+- overlap safety
+- broadcast text-size constraints
+- kiosk tap-target constraints
+- different layouts across aspect ratios
+- previously unseen surfaces
+
+Run tests with:
+
+```bash
+npm test
+```
+
+## Development
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Run the development server:
+
+```bash
+npm run dev
+```
+
+Create a production build:
+
+```bash
+npm run build
+```
+
+## Project Structure
+
+```text
+src/
+├── core/
+│   ├── types.ts
+│   ├── spec.ts
+│   ├── surfaces.ts
+│   └── resolver.ts
+├── rendering/
+│   └── render-dom.tsx
+├── demo/
+│   └── ad-spec.ts
+├── App.tsx
+└── main.tsx
+
+tests/
+└── resolver.test.ts
+
+ARCHITECTURE.md
+README.md
+```
+
+## Known Limitations
+
+The current implementation intentionally keeps the layout model small.
+
+Limitations include:
+
+- fixed element type set
+- no animation between surface changes
+- no browser text measurement in the resolver
+- no Canvas rendering backend
+- limited typography-aware wrapping
+
+These are extension points rather than requirements for the core resolver.
+
+
+## Time Spent
+
+Approximately 3 days, including implementation, testing, debugging, and documentation.
+
+
+## AI Tool Disclosure
+
+AI tools were used during development for:
+
+- architecture discussion
+- implementation assistance
+- debugging
+- test-case generation
+- documentation drafting
+
+The final implementation was reviewed and tested locally, and the resolver design is intended to be explainable independently of the AI assistance.
