@@ -323,9 +323,6 @@ function composeWide(
   compression: number,
 ): Candidate {
   const byRole = roleMap(elements);
-  const decisions: ResolutionDecision[] = [];
-
-  const gap = Math.max(12, 20 * compression);
 
   const hero = byRole.get("hero");
   const headline = byRole.get("primary");
@@ -333,19 +330,36 @@ function composeWide(
   const cta = byRole.get("action");
   const logo = byRole.get("branding");
 
+  const gap = Math.max(12, 18 * compression);
+
+  const result: ResolvedElement[] = [];
+
+  /*
+   * Generic wide composition:
+   *
+   * ┌────────┬──────────────────────────────┬────────┐
+   * │        │           HEADLINE           │        │
+   * │  HERO  │                              │  LOGO  │
+   * │        ├──────────────┬───────────────┤        │
+   * │        │    PRICE     │      CTA      │        │
+   * └────────┴──────────────┴───────────────┴────────┘
+   *
+   * The proportions are derived from available width rather than
+   * the identity of the surface.
+   */
+
   const heroWidth = hero
-    ? Math.max(
-        minimumWidth(hero, surface),
-        bounds.width * 0.25,
-      )
+    ? bounds.width * 0.24
     : 0;
 
   const logoWidth = logo
-    ? Math.max(
-        minimumWidth(logo, surface),
-        Math.min(bounds.width * 0.12, 130),
-      )
+    ? Math.min(bounds.width * 0.12, 120 * compression)
     : 0;
+
+  const contentX =
+    bounds.x +
+    heroWidth +
+    (hero ? gap : 0);
 
   const contentWidth =
     bounds.width -
@@ -353,17 +367,46 @@ function composeWide(
     logoWidth -
     gap * ((hero ? 1 : 0) + (logo ? 1 : 0));
 
-  const result: ResolvedElement[] = [];
+  const headerHeight = headline
+    ? Math.max(
+        minimumHeight(headline, surface),
+        70 * compression,
+      )
+    : 0;
+
+  const footerHeight =
+    price || cta
+      ? Math.max(
+          ...[price, cta]
+            .filter(
+              (element): element is AdElement =>
+                Boolean(element),
+            )
+            .map((element) =>
+              minimumHeight(element, surface),
+            ),
+          60 * compression,
+        )
+      : 0;
 
   if (hero) {
+    const heroSize = Math.min(
+      heroWidth * 0.9,
+      bounds.height * 0.82,
+    );
+
     result.push(
       createResolved(
         hero,
         {
-          x: bounds.x,
-          y: bounds.y,
-          width: heroWidth,
-          height: bounds.height,
+          x:
+            bounds.x +
+            (heroWidth - heroSize) / 2,
+          y:
+            bounds.y +
+            (bounds.height - heroSize) / 2,
+          width: heroSize,
+          height: heroSize,
         },
         surface,
         compression,
@@ -371,45 +414,57 @@ function composeWide(
     );
   }
 
-  const contentElements = [
-    headline,
-    price,
-    cta,
-  ].filter(
-    (element): element is AdElement => Boolean(element),
+  if (headline) {
+    result.push(
+      createResolved(
+        headline,
+        {
+          x: contentX,
+          y: bounds.y,
+          width: contentWidth,
+          height: headerHeight,
+        },
+        surface,
+        compression,
+      ),
+    );
+  }
+
+  const footerElements = [price, cta].filter(
+    (element): element is AdElement =>
+      Boolean(element),
   );
 
-  if (contentElements.length > 0) {
-    const contentGap = Math.max(
-      8,
-      12 * compression,
+  if (footerElements.length > 0) {
+    const footerGap = Math.max(
+      10,
+      14 * compression,
     );
 
-    const rowHeight =
-      (bounds.height -
-        contentGap * (contentElements.length - 1)) /
-      contentElements.length;
+    const totalGap =
+      footerGap *
+      (footerElements.length - 1);
 
-    contentElements.forEach((element, index) => {
+    const footerWidth =
+      (contentWidth - totalGap) /
+      footerElements.length;
+
+    const footerY =
+      bounds.y +
+      bounds.height -
+      footerHeight;
+
+    footerElements.forEach((element, index) => {
       result.push(
         createResolved(
           element,
           {
             x:
-              bounds.x +
-              heroWidth +
-              (hero ? gap : 0),
-            y:
-              bounds.y +
-              index * (rowHeight + contentGap),
-            width: Math.max(
-              minimumWidth(element, surface),
-              contentWidth,
-            ),
-            height: Math.max(
-              minimumHeight(element, surface),
-              rowHeight,
-            ),
+              contentX +
+              index * (footerWidth + footerGap),
+            y: footerY,
+            width: footerWidth,
+            height: footerHeight,
           },
           surface,
           compression,
@@ -423,13 +478,15 @@ function composeWide(
       createResolved(
         logo,
         {
-          x: bounds.x + bounds.width - logoWidth,
-          y: bounds.y,
+          x:
+            bounds.x +
+            bounds.width -
+            logoWidth,
+          y:
+            bounds.y +
+            (bounds.height - 48 * compression) / 2,
           width: logoWidth,
-          height: Math.min(
-            44 * compression,
-            bounds.height,
-          ),
+          height: 48 * compression,
         },
         surface,
         compression,
@@ -439,7 +496,7 @@ function composeWide(
 
   return {
     elements: result,
-    decisions,
+    decisions: [],
   };
 }
 
