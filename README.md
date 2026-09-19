@@ -2,7 +2,7 @@
 
 Constraint-based adaptive layout resolution for multi-surface advertising.
 
-LayoutForge takes a single declarative advertisement specification and resolves it into valid layouts for surfaces with fundamentally different dimensions and constraints.
+LayoutForge takes a single declarative advertisement specification and resolves it into valid layouts for surfaces with different dimensions and constraints.
 
 ## Why
 
@@ -13,7 +13,7 @@ The same advertising content may need to appear on:
 - broadcast lower-thirds
 - square interactive kiosks
 
-Instead of maintaining a separate layout for each surface, LayoutForge uses a constraint-driven resolver to derive the composition from the available geometry and surface constraints.
+Instead of maintaining a separate layout for each surface, LayoutForge uses a constraint-driven resolver to derive the composition from available geometry and surface constraints.
 
 ## Architecture
 
@@ -30,34 +30,27 @@ Resolved Layout
 DOM Renderer
 ```
 
-The resolver is plain TypeScript and is independent of React. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
+The resolver is plain TypeScript and independent of React. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the design details.
 
-## Features
+## Core Features
 
-- Single declarative ad specification
-- Constraint-based layout resolution
-- Priority-aware degradation
-- Safe-area support
-- Minimum tap-target constraints
-- Minimum text-size constraints
-- Overlap detection
-- Bounds validation
-- Four required surface profiles
-- Unknown-surface resolution
-- Interactive surface picker
-- Automated resolver tests
+- single declarative ad specification
+- constraint-based layout resolution
+- aspect-ratio-driven composition selection
+- priority-aware degradation
+- safe-area support
+- minimum tap-target constraints
+- minimum text-size constraints
+- bounds and overlap validation
+- four required surface profiles plus a constrained profile
+- resolution of previously unseen surface profiles
+- typed resolver output and resolution decisions
+- interactive surface picker
+- automated resolver tests
 
 ## Demo
 
-The demo uses one ad specification containing:
-
-- headline
-- product image
-- price
-- CTA
-- branding
-
-The same specification is resolved against multiple surface profiles.
+The repository includes a Vite/React demo that resolves the same ad specification against multiple surface profiles.
 
 Available profiles include:
 
@@ -65,7 +58,7 @@ Available profiles include:
 - Mobile Landscape
 - Broadcast Lower Third
 - Square Kiosk
-- Constrained surface
+- Constrained Surface
 
 Use the surface selector to see the resolver recompute the layout.
 
@@ -97,50 +90,32 @@ Attempt a preferred composition
       pass  fail
        |     |
        v     v
-     return  degrade
-               |
-               v
-          re-resolve
+     return  compress / degrade
+                 |
+                 v
+        re-resolve remaining content
 ```
 
-Composition is chosen from the surface geometry.
-
-The resolver does not contain surface-specific branches such as:
+Composition is selected from surface geometry rather than surface identity. The resolver does not require branches such as:
 
 ```ts
 if (surface.id === "mobilePortrait")
 ```
 
-Instead, surfaces provide dimensions and constraints, and the same resolution algorithm operates on them.
+Surfaces provide dimensions and constraints; the same resolver operates on those inputs.
 
 ## Priority & Degradation
 
-Elements have numeric priorities. Priority 1 content is considered critical.
+Elements have numeric priorities. Lower numeric values represent more important content.
 
-When the preferred composition cannot satisfy all constraints, the resolver progressively degrades the layout:
+When the preferred composition cannot satisfy all constraints, the resolver progressively degrades the layout by trying compressed variants and then removing lower-priority content before re-resolving the remaining elements.
 
-1. Compress the composition.
-2. Remove the lowest-priority priority tier.
-3. Re-resolve the remaining elements.
-4. Continue until the layout becomes valid or only critical content remains.
+Hard constraints are checked during resolution. A layout is only returned as valid when visible elements satisfy the supported constraints, including:
 
-Priority values are data-driven; the resolver does not assume specific numeric tiers.
-
-Hard constraints are checked during resolution. A layout is only returned as valid when the visible elements satisfy the supported surface constraints.
-
-For example, a touch surface may require:
-
-```text
-minimum tap target = 60px
-```
-
-and a broadcast surface may require:
-
-```text
-minimum text size = 32px
-```
-
-The resolver accounts for these constraints when determining whether a layout is valid.
+- minimum text size
+- minimum tap target
+- surface bounds
+- non-overlapping geometry
 
 ## TypeScript Design
 
@@ -153,25 +128,35 @@ Core types include:
 - `ResolvedLayout`
 - `ResolutionDecision`
 
-The output is explicitly typed so rendering code can consume position, size, visibility, and typography without guessing.
+The resolver returns typed geometry, visibility, typography, and resolution decisions so rendering code does not need to infer layout behavior.
 
 ## Testing
 
-The resolver tests cover:
+The resolver test suite covers:
 
 - valid layouts across required surfaces
 - bounds safety
 - overlap safety
-- broadcast text-size constraints
-- kiosk tap-target constraints
-- different layouts across aspect ratios
+- safe-area handling
+- broadcast minimum text size
+- kiosk minimum tap target
+- different compositions across aspect ratios
 - previously unseen surfaces
+- priority-based degradation
+- invalid specifications and surfaces
+- impossible fallback elements
+- duplicate-role elements
 
-Run tests with:
+Run the checks with:
 
 ```bash
+npm install
+npm run lint
 npm test
+npm run build
 ```
+
+The same checks run automatically in GitHub Actions for pull requests and pushes to `main`.
 
 ## Development
 
@@ -193,36 +178,46 @@ Create a production build:
 npm run build
 ```
 
+Preview the production build locally:
+
+```bash
+npm run preview
+```
+
 ## Project Structure
 
 ```text
-src/
-├── core/
-│   ├── types.ts
-│   ├── spec.ts
-│   ├── surfaces.ts
-│   └── resolver.ts
-├── rendering/
-│   └── render-dom.tsx
-├── demo/
-│   └── ad-spec.ts
-├── App.tsx
-└── main.tsx
-
-tests/
-└── resolver.test.ts
-
-ARCHITECTURE.md
-README.md
+layoutforge/
+├── .github/
+│   └── workflows/
+│       ├── ci.yml
+│       └── deploy.yml
+├── src/
+│   ├── core/
+│   │   ├── types.ts
+│   │   ├── spec.ts
+│   │   ├── surfaces.ts
+│   │   └── resolver.ts
+│   ├── rendering/
+│   │   └── render-dom.tsx
+│   ├── demo/
+│   │   └── ad-spec.ts
+│   ├── App.tsx
+│   └── main.tsx
+├── tests/
+│   └── resolver.test.ts
+├── ARCHITECTURE.md
+├── index.html
+├── package.json
+├── README.md
+└── LICENSE
 ```
 
 ## Known Limitations
 
 The current implementation intentionally keeps the layout model small.
 
-Limitations include:
-
-- fixed element type set
+- fixed element type set (`text`, `image`, `button`)
 - no animation between surface changes
 - no browser text measurement in the resolver
 - no Canvas rendering backend
@@ -230,20 +225,10 @@ Limitations include:
 
 These are extension points rather than requirements for the core resolver.
 
-
-## Time Spent
-
-Approximately 3 days, including implementation, testing, debugging, and documentation.
-
-
 ## AI Tool Disclosure
 
-AI tools were used during development for:
+AI tools were used during development for architecture discussion, implementation assistance, debugging, test-case generation, and documentation drafting. The resolver implementation was reviewed and tested locally.
 
-- architecture discussion
-- implementation assistance
-- debugging
-- test-case generation
-- documentation drafting
+## License
 
-The final implementation was reviewed and tested locally, and the resolver design is intended to be explainable independently of the AI assistance.
+This project is licensed under the MIT License.
